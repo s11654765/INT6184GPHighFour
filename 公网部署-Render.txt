@@ -1,0 +1,54 @@
+【免费公网链接 — Render.com】
+
+适合：课堂发一个 https 链接，学生用手机/电脑浏览器打开即可，无需安装 Python。
+
+────────────────────────
+一、你需要准备什么
+────────────────────────
+1. GitHub 账号（免费）。
+2. 本仓库里必须有：
+   - obesity_web/ 下全部代码与网页；
+   - obesity_web/xgb_model_bundle.joblib（模型文件）。
+   若还没有 joblib：在本机 obesity_web 目录执行
+     py -3 train_xgb_model.py
+   然后把生成的 xgb_model_bundle.joblib 一并提交到 Git。
+
+3. 仓库根目录的 render.yaml（已为你写好），用于一键部署。
+
+────────────────────────
+二、把代码推到 GitHub
+────────────────────────
+在项目根目录（含 render.yaml、obesity_web 文件夹）初始化 git 并 push，例如：
+  git init
+  git add .
+  git commit -m "Add obesity web app"
+  在 GitHub 新建空仓库后：
+  git remote add origin https://github.com/你的用户名/仓库名.git
+  git push -u origin main
+
+────────────────────────
+三、在 Render 上免费部署
+────────────────────────
+1. 打开 https://render.com 注册（可用 GitHub 登录）。
+2. Dashboard → 「New」→ 「Blueprint」。
+3. 连接你的 GitHub 仓库，选中包含 render.yaml 的那个仓库。
+4. Render 会读取 render.yaml，按提示创建服务（选 Free 实例即可）。
+5. 首次构建需要几分钟；成功后页面会显示类似：
+   https://obesity-predict-xxxx.onrender.com
+   这就是可以发给全班用的公网链接。
+
+健康检查：已配置为 GET /api/health，部署状态里应显示 healthy。
+
+────────────────────────
+四、免费版说明（官方政策）
+────────────────────────
+- 不绑信用卡也可使用免费 Web 服务（以 Render 当前政策为准）。
+- 约 15 分钟无访问会「休眠」，下次打开链接可能多等几十秒「冷启动」——课堂可提前一人点开一次唤醒。
+- 每月有免费额度；纯教学演示一般足够。
+
+────────────────────────
+五、不用 Blueprint 的手动方式（备选）
+────────────────────────
+New → Web Service → 连接同一仓库 → Runtime 选 Docker，
+Root Directory 填：obesity_web
+（或保持仓库根目录，并指定 Dockerfile 路径为 obesity_web/Dockerfile，与 Dashboard 选项一致即可。）

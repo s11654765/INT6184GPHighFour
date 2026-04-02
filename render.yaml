@@ -1,0 +1,13 @@
+# Render 免费 Web 服务（Docker）
+# 仓库推送到 GitHub 后：Dashboard → New → Blueprint → 选本仓库，按提示部署。
+# 要求：obesity_web/xgb_model_bundle.joblib 已提交（可先在本机运行 train_xgb_model.py 生成）。
+
+services:
+  - type: web
+    name: obesity-predict
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./obesity_web/Dockerfile
+    dockerContext: ./obesity_web
+    healthCheckPath: /api/health

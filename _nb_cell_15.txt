@@ -1,0 +1,50 @@
+row_xgb = None
+y_pred_xgb = None
+le = None
+_xgb_kw = None
+
+if XGBClassifier is None:
+    print("未安装 xgboost，跳过 XGBoost。")
+else:
+    le = LabelEncoder()
+    le.fit(SEVERITY_ORDER)
+    y_train_xgb = le.transform(y_train.astype(str))
+    # 与 model1.ipynb 一致：除 random_state / eval_metric / n_jobs 外均为库默认
+    _xgb_kw = dict(
+        random_state=RANDOM_STATE,
+        eval_metric="mlogloss",
+        n_jobs=1,
+    )
+    try:
+        xgb = XGBClassifier(**_xgb_kw, use_label_encoder=False)
+    except TypeError:
+        xgb = XGBClassifier(**_xgb_kw)
+    xgb.fit(X_train, y_train_xgb)
+    y_pred_xgb_idx = xgb.predict(X_test)
+    y_pred_xgb = le.inverse_transform(y_pred_xgb_idx.astype(int))
+    y_pred_xgb = pd.Categorical(
+        y_pred_xgb, categories=SEVERITY_ORDER, ordered=True
+    )
+    stab_xgb = _stability_cv_xgb(xgb, X_train, y_train_xgb, cv_splitter)
+    row_xgb = _collect_result(
+        "XGBoost (与 model1 一致, 默认超参)",
+        {**_xgb_kw, "note": "其余为 xgboost 库默认"},
+        stab_xgb["cv_mean_macro_f1"],
+        stab_xgb,
+        y_test,
+        y_pred_xgb,
+        SEVERITY_ORDER,
+    )
+    results_rows.append(row_xgb)
+    model_summaries["xgb"] = row_xgb
+
+    print("XGBoost 已训练。主要指标：")
+    for k in (
+        "best_cv_macro_f1",
+        "cv_mean_macro_f1",
+        "cv_std_macro_f1",
+        "test_accuracy",
+        "test_macro_f1",
+        "test_weighted_f1",
+    ):
+        print(f"  {k}: {row_xgb[k]}")

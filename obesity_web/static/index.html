@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>肥胖等级预测（XGBoost）</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>肥胖等级预测</h1>
+        <p>填写与课程数据集一致的特征，使用 XGBoost 模型估算肥胖等级（课堂演示用）。</p>
+      </header>
+
+      <div class="card">
+        <form id="form">
+          <fieldset>
+            <legend>基本信息</legend>
+            <div class="row two">
+              <div>
+                <label for="gender">性别</label>
+                <select id="gender" name="gender" required>
+                  <option value="0">女</option>
+                  <option value="1">男</option>
+                </select>
+              </div>
+              <div>
+                <label for="age">年龄</label>
+                <input id="age" name="age" type="number" min="10" max="120" step="1" value="21" required />
+              </div>
+            </div>
+            <div class="row two">
+              <div>
+                <label for="height">身高（米）</label>
+                <input id="height" name="height" type="number" min="0.5" max="2.5" step="0.01" value="1.70" required />
+              </div>
+              <div>
+                <label for="weight">体重（千克）</label>
+                <input id="weight" name="weight" type="number" min="20" max="300" step="0.1" value="70" required />
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>生活习惯（编码与数据预处理一致）</legend>
+            <div class="row">
+              <label for="family_history">家族肥胖史</label>
+              <select id="family_history" name="family_history">
+                <option value="0">否</option>
+                <option value="1">是</option>
+              </select>
+            </div>
+            <div class="row">
+              <label for="high_cal_food">是否摄入高热量食物</label>
+              <select id="high_cal_food" name="high_cal_food">
+                <option value="0">否</option>
+                <option value="1">是</option>
+              </select>
+            </div>
+            <div class="row two">
+              <div>
+                <label for="snacking">零食频率</label>
+                <select id="snacking" name="snacking">
+                  <option value="0">从不 / no</option>
+                  <option value="1">有时</option>
+                  <option value="2">经常</option>
+                  <option value="3">总是</option>
+                </select>
+              </div>
+              <div>
+                <label for="alcohol">饮酒频率</label>
+                <select id="alcohol" name="alcohol">
+                  <option value="0">从不 / no</option>
+                  <option value="1">有时</option>
+                  <option value="2">经常</option>
+                  <option value="3">总是</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <label for="smoking">是否吸烟</label>
+              <select id="smoking" name="smoking">
+                <option value="0">否</option>
+                <option value="1">是</option>
+              </select>
+            </div>
+            <div class="row two">
+              <div>
+                <label for="physical_activity">体力活动（整数，与数据集一致）</label>
+                <input id="physical_activity" name="physical_activity" type="number" min="0" max="10" step="1" value="2" />
+              </div>
+              <div>
+                <label for="screen_time">屏幕时间（整数）</label>
+                <input id="screen_time" name="screen_time" type="number" min="0" max="24" step="1" value="1" />
+              </div>
+            </div>
+            <div class="row">
+              <label for="transport">主要出行方式（对应 one-hot：公交为基准类）</label>
+              <select id="transport" name="transport" required>
+                <option value="Public_Transportation">公共交通</option>
+                <option value="Walking">步行</option>
+                <option value="Automobile">汽车</option>
+                <option value="Bike">自行车</option>
+              </select>
+            </div>
+          </fieldset>
+
+          <button type="submit" id="btn">预测肥胖等级</button>
+          <p class="notice">结果仅供教学演示，不能替代医学诊断。若模型未加载，请先在项目目录运行 <code>py train_xgb_model.py</code>。</p>
+        </form>
+
+        <div id="error"></div>
+        <div id="result">
+          <h2>预测结果</h2>
+          <div class="main-pred" id="pred-zh"></div>
+          <div class="sub" id="pred-en"></div>
+          <ul id="prob-list"></ul>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const form = document.getElementById("form");
+      const btn = document.getElementById("btn");
+      const errBox = document.getElementById("error");
+      const result = document.getElementById("result");
+      const predZh = document.getElementById("pred-zh");
+      const predEn = document.getElementById("pred-en");
+      const probList = document.getElementById("prob-list");
+
+      function showError(msg) {
+        errBox.textContent = msg;
+        errBox.classList.add("visible");
+        result.classList.remove("visible");
+      }
+
+      function hideError() {
+        errBox.classList.remove("visible");
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        hideError();
+        btn.disabled = true;
+
+        const payload = {
+          gender: parseInt(document.getElementById("gender").value, 10),
+          age: parseFloat(document.getElementById("age").value),
+          height: parseFloat(document.getElementById("height").value),
+          weight: parseFloat(document.getElementById("weight").value),
+          family_history: parseInt(document.getElementById("family_history").value, 10),
+          high_cal_food: parseInt(document.getElementById("high_cal_food").value, 10),
+          snacking: parseInt(document.getElementById("snacking").value, 10),
+          alcohol: parseInt(document.getElementById("alcohol").value, 10),
+          smoking: parseInt(document.getElementById("smoking").value, 10),
+          physical_activity: parseInt(document.getElementById("physical_activity").value, 10),
+          screen_time: parseInt(document.getElementById("screen_time").value, 10),
+          transport: document.getElementById("transport").value,
+        };
+
+        try {
+          const res = await fetch("/api/predict", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            showError(data.error || "请求失败");
+            return;
+          }
+          predZh.textContent = data.predicted_level_zh;
+          predEn.textContent = data.predicted_level_en;
+          probList.innerHTML = "";
+          if (data.probabilities) {
+            const entries = Object.entries(data.probabilities).sort((a, b) => b[1] - a[1]);
+            for (const [k, v] of entries) {
+              const li = document.createElement("li");
+              li.textContent = k + "：" + (v * 100).toFixed(2) + "%";
+              probList.appendChild(li);
+            }
+          }
+          result.classList.add("visible");
+        } catch (ex) {
+          showError("网络错误：" + (ex && ex.message ? ex.message : String(ex)));
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

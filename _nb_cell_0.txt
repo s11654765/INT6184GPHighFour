@@ -1,0 +1,11 @@
+# 肥胖等级多分类
+
+**策略**：逻辑回归 / 决策树 / 随机森林 —— **扩大 GridSearch 范围并增加搜索轮次**（7 折分层 CV），以抬高测试集 Accuracy 与 Macro F1。XGBoost 与 `model1.ipynb` 一致，仅用**库默认超参** + `random_state` / `eval_metric` / `n_jobs`，**不做调参**，便于作为对照且数值与 model1 接近。
+
+**数据**：`Obesity_Data_clean_onehot.xlsx`（已二值/one-hot 编码，本笔记不再重复编码）。
+
+**若报错 `No module named 'sklearn'`**：请先运行**下面第一个代码格**的 `%pip install ...`（装到当前内核），再 **Restart Kernel**，然后从「import」格继续。
+
+**用法**：从上到下依次运行；或 Kernel → Restart & Run All（需已安装依赖）。
+
+也可在终端对**同一 Python** 执行：`pip install -r requirements.txt`。
