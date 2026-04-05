@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-肥胖等级预测：Flask 提供静态页 + /api/predict。
+Flask: English UI + /api/predict using model_final.ipynb pipeline (Obesity_data_clean.csv encoding).
+Fixed defaults (not on form): age=15, meals_per_day=3.
+Model does not use gender / height / weight / family_history (dropped in notebook).
 """
 from __future__ import annotations
 
@@ -13,15 +15,15 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import joblib
 
-from feature_mappings import (
-    OBESITY_LEVEL_ZH,
-    SNACKING_ALCOHOL_MAP,
-    build_feature_frame,
-)
+from feature_mappings import FREQ_INDEX_TO_STR, SNACKING_ALCOHOL_MAP
+from model_final_encode import raw_row_to_encoded_frame
+from student_advice_en import advice_for_level
+
+DEFAULT_AGE = 15.0
+DEFAULT_MEALS_PER_DAY = 3.0
 
 
 def _base_dir() -> Path:
-    """开发时：脚本目录；PyInstaller 打包后：解压目录 sys._MEIPASS。"""
     if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS)
     return Path(__file__).resolve().parent
@@ -36,7 +38,7 @@ app = Flask(__name__, static_folder=str(BASE / "static"), static_url_path="")
 def load_bundle():
     if not BUNDLE_PATH.is_file():
         print(
-            f"错误: 未找到模型文件 {BUNDLE_PATH}，请先运行: py train_xgb_model.py",
+            f"Model bundle not found: {BUNDLE_PATH}. Run: py train_xgb_model.py",
             file=sys.stderr,
         )
         return None
@@ -46,26 +48,40 @@ def load_bundle():
 BUNDLE = load_bundle()
 
 
-def _parse_yes_no(v) -> int:
+def _parse_yes_no(v) -> str:
     if isinstance(v, bool):
-        return int(v)
+        return "yes" if v else "no"
     if isinstance(v, (int, float)) and v in (0, 1):
-        return int(v)
+        return "yes" if int(v) == 1 else "no"
     s = str(v).strip().lower()
-    if s in ("0", "no", "否", "n"):
-        return 0
-    if s in ("1", "yes", "是", "y"):
-        return 1
-    raise ValueError("yes/no 字段应为 0/1 或 yes/no/是/否")
+    if s in ("0", "no", "n"):
+        return "no"
+    if s in ("1", "yes", "y"):
+        return "yes"
+    raise ValueError("yes/no field must be 0/1 or yes/no")
 
 
-def _parse_snack_alcohol(v) -> int:
+def _parse_freq(v) -> str:
     if isinstance(v, (int, float)) and int(v) in (0, 1, 2, 3):
-        return int(v)
+        return FREQ_INDEX_TO_STR[int(v)]
     s = str(v).strip()
     if s in SNACKING_ALCOHOL_MAP:
-        return SNACKING_ALCOHOL_MAP[s]
-    raise ValueError("零食/饮酒频率应为 0–3 或 no/Sometimes/Frequently/Always")
+        return s
+    raise ValueError("Frequency must be 0–3 or no/Sometimes/Frequently/Always")
+
+
+def _parse_transport(v) -> str:
+    s = str(v).strip()
+    allowed = (
+        "Public_Transportation",
+        "Walking",
+        "Automobile",
+        "Motorbike",
+        "Bike",
+    )
+    if s not in allowed:
+        raise ValueError(f"transport must be one of {allowed}")
+    return s
 
 
 @app.route("/")
@@ -82,43 +98,39 @@ def health():
 @app.route("/api/predict", methods=["POST"])
 def predict():
     if BUNDLE is None:
-        return jsonify({"error": "模型未加载，请先运行 train_xgb_model.py"}), 503
+        return jsonify({"error": "Model not loaded. Run train_xgb_model.py locally."}), 503
 
     try:
         data = request.get_json(force=True, silent=True) or {}
     except Exception:
-        return jsonify({"error": "无效的 JSON"}), 400
+        return jsonify({"error": "Invalid JSON"}), 400
 
     try:
-        gender = int(data["gender"])
-        if gender not in (0, 1):
-            raise ValueError("gender 应为 0(女) 或 1(男)")
-
-        age = float(data["age"])
-        height = float(data["height"])
-        weight = float(data["weight"])
-        family_history = _parse_yes_no(data["family_history"])
-        high_cal_food = _parse_yes_no(data["high_cal_food"])
+        high_cal = _parse_yes_no(data["high_cal_food"])
+        veg = float(data["veg_consumption"])
         smoking = _parse_yes_no(data["smoking"])
-        snacking = _parse_snack_alcohol(data["snacking"])
-        alcohol = _parse_snack_alcohol(data["alcohol"])
-        physical_activity = int(round(float(data["physical_activity"])))
-        screen_time = int(round(float(data["screen_time"])))
-        transport = str(data["transport"]).strip()
+        snacking = _parse_freq(data["snacking"])
+        alcohol = _parse_freq(data["alcohol"])
+        water = float(data["water_intake"])
+        cal_mon = _parse_yes_no(data["calorie_monitor"])
+        physical_activity = float(data["physical_activity"])
+        screen_time = float(data["screen_time"])
+        transport = _parse_transport(data["transport"])
 
-        X = build_feature_frame(
-            gender=gender,
-            age=age,
-            height=height,
-            weight=weight,
-            family_history=family_history,
-            high_cal_food=high_cal_food,
+        X = raw_row_to_encoded_frame(
+            age=DEFAULT_AGE,
+            high_cal_food=high_cal,
+            veg_consumption=veg,
+            meals_per_day=DEFAULT_MEALS_PER_DAY,
             snacking=snacking,
             smoking=smoking,
+            water_intake=water,
+            calorie_monitor=cal_mon,
             physical_activity=physical_activity,
             screen_time=screen_time,
             alcohol=alcohol,
             transport=transport,
+            feature_columns=BUNDLE["feature_columns"],
         )
     except (KeyError, TypeError, ValueError) as e:
         return jsonify({"error": str(e)}), 400
@@ -127,22 +139,18 @@ def predict():
     le = BUNDLE["label_encoder"]
 
     idx = model.predict(X.values)[0]
-    proba = None
-    if hasattr(model, "predict_proba"):
-        proba = model.predict_proba(X.values)[0].tolist()
-    label_en = le.inverse_transform(np.array([int(idx)], dtype=int))[0]
-    label_zh = OBESITY_LEVEL_ZH.get(str(label_en), str(label_en))
-
-    classes = [str(c) for c in le.classes_]
-    probs = None
-    if proba is not None:
-        probs = {classes[i]: round(float(proba[i]), 4) for i in range(len(classes))}
+    label_key = str(le.inverse_transform(np.array([int(idx)], dtype=int))[0])
+    title_en, advice_en = advice_for_level(label_key)
 
     return jsonify(
         {
-            "predicted_level_en": str(label_en),
-            "predicted_level_zh": label_zh,
-            "probabilities": probs,
+            "level_key": label_key,
+            "level_title": title_en,
+            "advice": advice_en,
+            "defaults_used": {
+                "age": int(DEFAULT_AGE),
+                "meals_per_day": int(DEFAULT_MEALS_PER_DAY),
+            },
         }
     )
 
@@ -157,7 +165,6 @@ def _default_port() -> int:
 
 if __name__ == "__main__":
     port = _default_port()
-    # 打包成 exe 时自动打开浏览器（仅 Windows 常见）
     if getattr(sys, "frozen", False):
         try:
             import webbrowser

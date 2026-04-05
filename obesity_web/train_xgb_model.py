@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-使用与 model_final.ipynb 相同的 XGBoost 超参数，在 Obesity_Data_clean_onehot.xlsx 全量数据上训练，
-并保存 joblib 供 Flask 加载。部署推理通常使用全量数据重训；若需与某次 holdout 完全一致，请在笔记本中导出模型。
+在 try/final_model/model_final.ipynb 同一数据与编码上，使用 GridSearch 得到的最优 XGBoost 超参
+（n_estimators=200, max_depth=6, learning_rate=0.1）在全量数据上训练并保存 joblib。
+
+数据文件：try/final_model/Obesity_data_clean.csv（与 notebook 同目录相对路径）。
+随机种子与 notebook 一致：RANDOM_STATE = 2。
 """
 from __future__ import annotations
 
@@ -17,59 +20,55 @@ import joblib
 try:
     from xgboost import XGBClassifier
 except ImportError:
-    print("请先安装: pip install xgboost pandas openpyxl scikit-learn", file=sys.stderr)
+    print("Install: pip install xgboost pandas scikit-learn", file=sys.stderr)
     raise
 
-from feature_mappings import FEATURE_COLUMNS, SEVERITY_ORDER
+from model_final_encode import DROP_COLS, SEVERITY_ORDER, transform_obesity_features
 
-RANDOM_STATE = 42
-
-# 与 model_final.ipynb「XGBoost（最优参数固定）」一致
-XGB_SEARCH_PARAMS = {
+# 与 model_final.ipynb 中 GridSearchCV 输出一致（Best params）
+RANDOM_STATE = 2
+XGB_BEST = {
     "n_estimators": 200,
-    "max_depth": 8,
+    "max_depth": 6,
     "learning_rate": 0.1,
-    "min_child_weight": 1,
-    "subsample": 0.9,
-    "colsample_bytree": 0.9,
-}
-XGB_FIXED = {
     "random_state": RANDOM_STATE,
     "eval_metric": "mlogloss",
-    "n_jobs": -1,
+    "n_jobs": 1,
 }
 
 
 def main() -> None:
     base = Path(__file__).resolve().parent
     root = base.parent
-    data_path = root / "Obesity_Data_clean_onehot.xlsx"
+    data_path = root / "try" / "final_model" / "Obesity_data_clean.csv"
     if not data_path.is_file():
-        print(f"未找到数据文件: {data_path}", file=sys.stderr)
+        print(f"Data file not found: {data_path}", file=sys.stderr)
         sys.exit(1)
 
-    df = pd.read_excel(data_path)
+    df = pd.read_csv(data_path)
     if "obesity_level" not in df.columns:
-        sys.exit("数据缺少列 obesity_level")
+        sys.exit("Column obesity_level missing.")
 
-    X = df.drop(columns=["obesity_level"])
+    df["obesity_level"] = pd.Categorical(
+        df["obesity_level"], categories=SEVERITY_ORDER, ordered=True
+    )
+
+    X_raw = df.drop(columns=[c for c in DROP_COLS if c in df.columns])
     y = df["obesity_level"]
 
+    X = transform_obesity_features(X_raw)
     for col in X.columns:
         if X[col].dtype == bool:
             X[col] = X[col].astype(np.int8)
-
-    # 列顺序固定，与线上一致
-    X = X[FEATURE_COLUMNS]
 
     le = LabelEncoder()
     le.fit(SEVERITY_ORDER)
     y_int = le.transform(y.astype(str))
 
     try:
-        model = XGBClassifier(**XGB_FIXED, **XGB_SEARCH_PARAMS, use_label_encoder=False)
+        model = XGBClassifier(**XGB_BEST, use_label_encoder=False)
     except TypeError:
-        model = XGBClassifier(**XGB_FIXED, **XGB_SEARCH_PARAMS)
+        model = XGBClassifier(**XGB_BEST)
 
     model.fit(X, y_int)
 
@@ -77,12 +76,13 @@ def main() -> None:
     bundle = {
         "model": model,
         "label_encoder": le,
-        "feature_columns": FEATURE_COLUMNS,
+        "feature_columns": list(X.columns),
         "severity_order": SEVERITY_ORDER,
-        "xgb_params": {**XGB_FIXED, **XGB_SEARCH_PARAMS},
+        "xgb_params": {**XGB_BEST, "source": "model_final.ipynb GridSearch best"},
+        "data_source": str(data_path),
     }
     joblib.dump(bundle, out_path)
-    print(f"已保存: {out_path}，样本数 {len(X)}，特征数 {X.shape[1]}")
+    print(f"Saved {out_path}, n_samples={len(X)}, n_features={X.shape[1]}")
 
 
 if __name__ == "__main__":

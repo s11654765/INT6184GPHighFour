@@ -25,6 +25,8 @@ a = Analysis(
     hiddenimports=hiddenimports
     + [
         "feature_mappings",
+        "model_final_encode",
+        "student_advice_en",
         "sklearn.utils._cython_blas",
         "sklearn.neighbors._quad_tree",
         "sklearn.tree._utils",

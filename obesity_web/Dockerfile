@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements-runtime.txt .
 RUN pip install --no-cache-dir -r requirements-runtime.txt
 
-COPY app.py feature_mappings.py ./
+COPY app.py feature_mappings.py model_final_encode.py student_advice_en.py ./
 COPY static ./static/
 COPY xgb_model_bundle.joblib ./
 
